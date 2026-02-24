@@ -415,6 +415,7 @@ def main():
                 MessageHandler(filters.TEXT & ~filters.COMMAND, ranking_labels_handler),
             ],
             RANKING_AUDIO: [
+                CommandHandler("skip", ranking_audio_handler),
                 MessageHandler(
                     (filters.AUDIO | filters.VOICE | filters.Document.ALL | filters.TEXT)
                     & ~filters.COMMAND,
