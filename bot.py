@@ -28,6 +28,8 @@ from core.config import (
     CREATE_AUDIO, CREATE_PREVIEW,
     TEMPLATE_MENU, TEMPLATE_NAME, TEMPLATE_DESCRIBE, TEMPLATE_SELECT,
     EDIT_PROMPT,
+    RANKING_MENU, RANKING_TITLE, RANKING_COLORS,
+    RANKING_CLIPS, RANKING_LABELS, RANKING_AUDIO, RANKING_PREVIEW,
 )
 from core.downloader import MediaDownloader
 from core.media_info import get_media_info
@@ -48,6 +50,12 @@ from handlers.template_handlers import (
 )
 from handlers.preset_handlers import (
     manage_presets, preset_action, create_preset,
+)
+from handlers.ranking_handlers import (
+    ranking_menu, ranking_menu_handler, ranking_title_handler,
+    ranking_colors_handler, ranking_clips_handler,
+    ranking_labels_handler, ranking_audio_handler,
+    ranking_preview_handler,
 )
 
 logging.basicConfig(
@@ -74,6 +82,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         "*Commands:*\n"
         "/start - Start the bot\n"
         "/create - Create a video from scratch\n"
+        "/ranking - Auto-build ranking shorts (Top 5 etc)\n"
         "/templates - Manage video templates\n"
         "/presets - Manage filter presets\n"
         "/settings - View settings\n"
@@ -222,6 +231,11 @@ async def create_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     return await create_menu(update, context)
 
 
+async def ranking_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle /ranking command."""
+    return await ranking_menu(update, context)
+
+
 async def templates_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Handle /templates command."""
     return await template_menu(update, context)
@@ -276,6 +290,7 @@ def main():
         entry_points=[
             CommandHandler("start", start),
             CommandHandler("create", create_command),
+            CommandHandler("ranking", ranking_command),
             CommandHandler("templates", templates_command),
             CommandHandler("presets", manage_presets),
             MessageHandler(
@@ -378,11 +393,44 @@ def main():
             TEMPLATE_SELECT: [
                 CallbackQueryHandler(template_select_handler),
             ],
+
+            # Ranking video flow
+            RANKING_MENU: [
+                CallbackQueryHandler(ranking_menu_handler, pattern="^rk_"),
+            ],
+            RANKING_TITLE: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, ranking_title_handler),
+            ],
+            RANKING_COLORS: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, ranking_colors_handler),
+            ],
+            RANKING_CLIPS: [
+                MessageHandler(
+                    filters.TEXT | filters.VIDEO | filters.Document.ALL,
+                    ranking_clips_handler
+                ),
+                CallbackQueryHandler(ranking_clips_handler, pattern="^rk_"),
+            ],
+            RANKING_LABELS: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, ranking_labels_handler),
+            ],
+            RANKING_AUDIO: [
+                MessageHandler(
+                    (filters.AUDIO | filters.VOICE | filters.Document.ALL | filters.TEXT)
+                    & ~filters.COMMAND,
+                    ranking_audio_handler
+                ),
+                CallbackQueryHandler(ranking_audio_handler, pattern="^rk_"),
+            ],
+            RANKING_PREVIEW: [
+                CallbackQueryHandler(ranking_preview_handler, pattern="^rk_"),
+            ],
         },
         fallbacks=[
             CommandHandler("cancel", cancel),
             CommandHandler("start", start),
             CommandHandler("create", create_command),
+            CommandHandler("ranking", ranking_command),
             CommandHandler("templates", templates_command),
             CommandHandler("presets", manage_presets),
         ],

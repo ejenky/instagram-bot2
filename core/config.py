@@ -60,4 +60,12 @@ SUPPORTED_DOMAINS = [
     TEMPLATE_SELECT,        # 21 - select template to use
     # Edit prompt (after download)
     EDIT_PROMPT,            # 22 - ask if user wants to edit
-) = range(23)
+    # Ranking video states
+    RANKING_MENU,           # 23 - ranking item count
+    RANKING_TITLE,          # 24 - enter title
+    RANKING_COLORS,         # 25 - assign word colors
+    RANKING_CLIPS,          # 26 - send clips
+    RANKING_LABELS,         # 27 - enter labels
+    RANKING_AUDIO,          # 28 - background music
+    RANKING_PREVIEW,        # 29 - post-build actions
+) = range(30)
