@@ -301,8 +301,12 @@ def main():
         states={
             # Content input
             WAITING_FOR_CONTENT: [
+                CommandHandler("create", create_command),
+                CommandHandler("ranking", ranking_command),
+                CommandHandler("templates", templates_command),
+                CommandHandler("presets", manage_presets),
                 MessageHandler(
-                    filters.TEXT | filters.PHOTO | filters.VIDEO | filters.Document.ALL,
+                    (filters.TEXT & ~filters.COMMAND) | filters.PHOTO | filters.VIDEO | filters.Document.ALL,
                     handle_content
                 ),
             ],
