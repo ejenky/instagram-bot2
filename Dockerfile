@@ -2,6 +2,7 @@ FROM python:3.11-slim
 
 RUN apt-get update && apt-get install -y \
     ffmpeg \
+    curl \
     fonts-dejavu-core \
     fonts-inter \
     && rm -rf /var/lib/apt/lists/*
@@ -14,9 +15,13 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Always upgrade yt-dlp to latest version (X/Twitter changes frequently)
 RUN pip install --upgrade yt-dlp
 
+COPY core/ core/
+COPY editors/ editors/
+COPY creators/ creators/
+COPY handlers/ handlers/
 COPY bot.py .
 
-RUN mkdir -p /app/data /app/assets
+RUN mkdir -p /app/data /app/assets /app/templates
 
 ENV TELEGRAM_BOT_TOKEN=YOUR_BOT_TOKEN
 ENV DEFAULT_WATERMARK=@yourusername
