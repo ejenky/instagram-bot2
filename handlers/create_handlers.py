@@ -54,6 +54,7 @@ async def create_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
             InlineKeyboardButton("Save as Template", callback_data="create_save_template"),
             InlineKeyboardButton("Load Template", callback_data="create_load_template"),
         ],
+        [InlineKeyboardButton("Listicle / Ranking", callback_data="create_listicle")],
         [InlineKeyboardButton("Clear All", callback_data="create_clear")],
         [InlineKeyboardButton("Cancel", callback_data="create_cancel")],
     ]
@@ -192,6 +193,10 @@ async def create_add_clip_handler(update: Update, context: ContextTypes.DEFAULT_
                 context.user_data['creator'].clear_timeline()
             await query.edit_message_text("Timeline cleared.")
             return await create_menu(update, context)
+        elif action == "create_listicle":
+            from handlers.listicle_handlers import listicle_start
+            return await listicle_start(update, context)
+
         elif action == "create_cancel":
             context.user_data.pop('creator', None)
             await query.edit_message_text("Creation cancelled. Send a link or file to start editing.")

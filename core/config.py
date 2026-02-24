@@ -60,4 +60,10 @@ SUPPORTED_DOMAINS = [
     TEMPLATE_SELECT,        # 21 - select template to use
     # Edit prompt (after download)
     EDIT_PROMPT,            # 22 - ask if user wants to edit
-) = range(23)
+    # Listicle/ranking video creation states
+    LISTICLE_TITLE,         # 23 - enter title with colors
+    LISTICLE_CLIPS,         # 24 - upload video clips
+    LISTICLE_LABELS,        # 25 - enter labels for each clip
+    LISTICLE_MUSIC,         # 26 - upload background music
+    LISTICLE_CONFIRM,       # 27 - review and build
+) = range(28)

@@ -28,6 +28,8 @@ from core.config import (
     CREATE_AUDIO, CREATE_PREVIEW,
     TEMPLATE_MENU, TEMPLATE_NAME, TEMPLATE_DESCRIBE, TEMPLATE_SELECT,
     EDIT_PROMPT,
+    LISTICLE_TITLE, LISTICLE_CLIPS, LISTICLE_LABELS,
+    LISTICLE_MUSIC, LISTICLE_CONFIRM,
 )
 from core.downloader import MediaDownloader
 from core.media_info import get_media_info
@@ -48,6 +50,10 @@ from handlers.template_handlers import (
 )
 from handlers.preset_handlers import (
     manage_presets, preset_action, create_preset,
+)
+from handlers.listicle_handlers import (
+    listicle_start, listicle_title_handler, listicle_clips_handler,
+    listicle_labels_handler, listicle_music_handler, listicle_confirm_handler,
 )
 
 logging.basicConfig(
@@ -74,6 +80,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         "*Commands:*\n"
         "/start - Start the bot\n"
         "/create - Create a video from scratch\n"
+        "/listicle - Create a ranking/listicle video\n"
         "/templates - Manage video templates\n"
         "/presets - Manage filter presets\n"
         "/settings - View settings\n"
@@ -222,6 +229,11 @@ async def create_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     return await create_menu(update, context)
 
 
+async def listicle_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle /listicle command."""
+    return await listicle_start(update, context)
+
+
 async def templates_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Handle /templates command."""
     return await template_menu(update, context)
@@ -276,6 +288,7 @@ def main():
         entry_points=[
             CommandHandler("start", start),
             CommandHandler("create", create_command),
+            CommandHandler("listicle", listicle_command),
             CommandHandler("templates", templates_command),
             CommandHandler("presets", manage_presets),
             MessageHandler(
@@ -378,11 +391,37 @@ def main():
             TEMPLATE_SELECT: [
                 CallbackQueryHandler(template_select_handler),
             ],
+
+            # Listicle/ranking video creation flow
+            LISTICLE_TITLE: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, listicle_title_handler),
+            ],
+            LISTICLE_CLIPS: [
+                MessageHandler(
+                    filters.TEXT | filters.VIDEO | filters.Document.ALL,
+                    listicle_clips_handler
+                ),
+                CallbackQueryHandler(listicle_clips_handler),
+            ],
+            LISTICLE_LABELS: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, listicle_labels_handler),
+            ],
+            LISTICLE_MUSIC: [
+                MessageHandler(
+                    (filters.AUDIO | filters.VOICE | filters.Document.ALL | filters.TEXT)
+                    & ~filters.COMMAND,
+                    listicle_music_handler
+                ),
+            ],
+            LISTICLE_CONFIRM: [
+                CallbackQueryHandler(listicle_confirm_handler),
+            ],
         },
         fallbacks=[
             CommandHandler("cancel", cancel),
             CommandHandler("start", start),
             CommandHandler("create", create_command),
+            CommandHandler("listicle", listicle_command),
             CommandHandler("templates", templates_command),
             CommandHandler("presets", manage_presets),
         ],
