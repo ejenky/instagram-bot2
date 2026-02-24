@@ -1,6 +1,8 @@
 """Ranking Video Creator - Auto-builds Top N ranking-style YouTube Shorts.
 
 Uses Pillow for overlay rendering and FFmpeg for video processing.
+Clips fill the entire 9:16 frame. Ranking numbers are overlaid on the
+left side of the video (not a bottom bar). Title banner at the top.
 """
 
 import os
@@ -42,6 +44,13 @@ def _color(c):
     return COLOR_MAP.get(c.lower(), '#FFFFFF')
 
 
+def _hex_to_rgba(hex_color, alpha=255):
+    """Convert hex color to RGBA tuple."""
+    h = hex_color.lstrip('#')
+    r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+    return (r, g, b, alpha)
+
+
 class RankingVideoCreator:
     def __init__(self, temp_dir):
         self.temp_dir = temp_dir
@@ -55,8 +64,8 @@ class RankingVideoCreator:
         self.target_width = 1080
         self.target_height = 1920
         self.title_font_size = 52
-        self.number_font_size = 44
-        self.label_font_size = 36
+        self.number_font_size = 54
+        self.label_font_size = 34
         self.highlight_color = '#FF0000'
         self.dim_color = '#555555'
         self.revealed_color = '#FFFFFF'
@@ -80,22 +89,12 @@ class RankingVideoCreator:
             return self.title_font_size * 2 + 90
         return self.title_font_size + 70
 
-    def _list_h(self):
-        ih = max(self.number_font_size, self.label_font_size) + 18
-        return ih * self.count + 50
-
-    def _video_area(self):
-        th = self._title_h()
-        lh = self._list_h()
-        p = 16
-        return p, th + p, self.target_width - p * 2, self.target_height - th - lh - p * 2
-
     def _draw_title(self, img, draw):
         if not self.title_words:
             return
         th = self._title_h()
         font = _load_font(FONT_BOLD, self.title_font_size)
-        draw.rectangle([0, 0, self.target_width, th], fill=(0, 0, 0, 230))
+        draw.rectangle([0, 0, self.target_width, th], fill=(0, 0, 0, 200))
 
         text = ' '.join(w for w, _ in self.title_words)
         bb = draw.textbbox((0, 0), text, font=font)
@@ -106,7 +105,7 @@ class RankingVideoCreator:
             x = (self.target_width - tw) // 2
             y = (th - self.title_font_size) // 2
             for word, col in self.title_words:
-                draw.text((x+2, y+2), word, font=font, fill=(0,0,0,180))
+                draw.text((x+2, y+2), word, font=font, fill=(0, 0, 0, 180))
                 draw.text((x, y), word, font=font, fill=_color(col))
                 wb = draw.textbbox((0, 0), word + ' ', font=font)
                 x += wb[2] - wb[0]
@@ -134,43 +133,93 @@ class RankingVideoCreator:
                 x = (self.target_width - (lb[2] - lb[0])) // 2
                 y = sy + li * lh
                 for word, col in lw:
-                    draw.text((x+2, y+2), word, font=font, fill=(0,0,0,180))
+                    draw.text((x+2, y+2), word, font=font, fill=(0, 0, 0, 180))
                     draw.text((x, y), word, font=font, fill=_color(col))
                     wb = draw.textbbox((0, 0), word + ' ', font=font)
                     x += wb[2] - wb[0]
 
     def _draw_list(self, img, draw, clip_idx):
-        lh = self._list_h()
-        ly = self.target_height - lh
+        """Draw ranking items overlaid on the left side of the video."""
         nf = _load_font(FONT_BOLD, self.number_font_size)
         lf = _load_font(FONT_REGULAR, self.label_font_size)
-        bg = Image.new('RGBA', (self.target_width, lh), (0, 0, 0, 180))
-        img.paste(bg, (0, ly), bg)
-        ih = max(self.number_font_size, self.label_font_size) + 18
+
+        # Layout: items stacked vertically on the left, centered in the video area
+        th = self._title_h()
+        available_h = self.target_height - th - 80  # 80px bottom margin
+        item_h = min(available_h // self.count, self.number_font_size + 40)
+        total_h = item_h * self.count
+        start_y = th + (available_h - total_h) // 2 + 20
 
         for i in range(self.count):
             num = self.count - i
-            y = ly + 25 + i * ih
+            y = start_y + i * item_h
             revealed = i <= clip_idx
             current = i == clip_idx
+
             if current:
                 nc = _color(self.highlight_color)
             elif revealed:
                 nc = _color(self.revealed_color)
             else:
                 nc = _color(self.dim_color)
+
             nt = f"{num}."
-            draw.text((42, y+2), nt, font=nf, fill=(0,0,0,200))
-            draw.text((40, y), nt, font=nf, fill=nc)
+            # Measure number width for background
+            nb = draw.textbbox((0, 0), nt, font=nf)
+            nw = nb[2] - nb[0]
+            nh = nb[3] - nb[1]
+
+            # Measure label if revealed
+            label_text = ""
+            lw_px = 0
             if revealed and i < len(self.labels):
+                label_text = self.labels[i]
+                lb = draw.textbbox((0, 0), label_text, font=lf)
+                lw_px = lb[2] - lb[0]
+
+            # Background pill behind number + label
+            pill_x = 30
+            pill_y = y
+            pill_w = nw + 30  # padding around number
+            if label_text:
+                pill_w = nw + lw_px + 50  # number + gap + label + padding
+            pill_h = max(nh, self.label_font_size) + 20
+
+            # Draw semi-transparent rounded background
+            if current:
+                bg_color = (0, 0, 0, 180)
+            elif revealed:
+                bg_color = (0, 0, 0, 140)
+            else:
+                bg_color = (0, 0, 0, 100)
+
+            # Rounded rectangle
+            r = 10
+            pill_rect = [pill_x, pill_y, pill_x + pill_w, pill_y + pill_h]
+            draw.rounded_rectangle(pill_rect, radius=r, fill=bg_color)
+
+            # Draw number
+            num_x = pill_x + 12
+            num_y = pill_y + (pill_h - nh) // 2
+            draw.text((num_x + 2, num_y + 2), nt, font=nf, fill=(0, 0, 0, 200))
+            draw.text((num_x, num_y), nt, font=nf, fill=nc)
+
+            # Draw label
+            if label_text:
                 lc = _color(self.highlight_color if current else self.label_color)
-                draw.text((122, y+4), self.labels[i], font=lf, fill=(0,0,0,200))
-                draw.text((120, y+2), self.labels[i], font=lf, fill=lc)
+                label_x = num_x + nw + 16
+                label_y = pill_y + (pill_h - self.label_font_size) // 2 + 2
+                draw.text((label_x + 1, label_y + 1), label_text, font=lf, fill=(0, 0, 0, 200))
+                draw.text((label_x, label_y), label_text, font=lf, fill=lc)
             elif not revealed:
-                draw.line([(120, y+20), (320, y+20)], fill=(80,80,80,150), width=2)
+                # Dim line placeholder
+                line_x = num_x + nw + 16
+                line_y = pill_y + pill_h // 2
+                draw.line([(line_x, line_y), (line_x + 120, line_y)],
+                          fill=(80, 80, 80, 150), width=2)
 
     def generate_overlay(self, clip_idx):
-        img = Image.new('RGBA', (self.target_width, self.target_height), (0,0,0,0))
+        img = Image.new('RGBA', (self.target_width, self.target_height), (0, 0, 0, 0))
         draw = ImageDraw.Draw(img)
         self._draw_title(img, draw)
         self._draw_list(img, draw, clip_idx)
@@ -178,7 +227,8 @@ class RankingVideoCreator:
         img.save(out, 'PNG')
         return out
 
-    async def _prepare_clip(self, clip, idx, vw, vh, vx, vy):
+    async def _prepare_clip(self, clip, idx):
+        """Prepare a clip: scale and crop to fill the entire 9:16 frame."""
         src = clip['path']
         out = os.path.join(self.temp_dir, f'p_{idx}_{self._rnd()}.mp4')
         ia = []
@@ -187,9 +237,12 @@ class RankingVideoCreator:
         if clip.get('end'):
             ia += ['-to', str(clip['end'])]
 
-        vf = (f"scale={vw}:{vh}:force_original_aspect_ratio=decrease,"
-              f"pad={vw}:{vh}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,"
-              f"pad={self.target_width}:{self.target_height}:{vx}:{vy}:color=black")
+        w = self.target_width
+        h = self.target_height
+
+        # Scale up to fill frame (crop overflow) instead of letterboxing
+        vf = (f"scale={w}:{h}:force_original_aspect_ratio=increase,"
+              f"crop={w}:{h},setsar=1")
 
         cmd = ['ffmpeg', '-y', *ia, '-i', src, '-vf', vf,
                '-c:v', 'libx264', '-preset', 'fast', '-crf', '20',
@@ -200,7 +253,7 @@ class RankingVideoCreator:
             cmd += ['-f', 'lavfi', '-i', 'anullsrc=r=44100:cl=stereo',
                     '-shortest', '-c:a', 'aac', '-b:a', '128k']
         else:
-            cmd += ['-c:a', 'aac', '-b:a', '192k']
+            cmd += ['-c:a', 'aac', '-ar', '44100', '-b:a', '192k']
         cmd.append(out)
 
         p = await asyncio.create_subprocess_exec(
@@ -220,7 +273,8 @@ class RankingVideoCreator:
                 f.write(f"file '{p}'\n")
         cmd = ['ffmpeg', '-y', '-f', 'concat', '-safe', '0', '-i', cf,
                '-c:v', 'libx264', '-preset', 'fast', '-crf', '20',
-               '-c:a', 'aac', '-b:a', '192k', '-pix_fmt', 'yuv420p', output]
+               '-c:a', 'aac', '-ar', '44100', '-b:a', '192k',
+               '-pix_fmt', 'yuv420p', output]
         p = await asyncio.create_subprocess_exec(
             *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
         _, err = await p.communicate()
@@ -260,16 +314,21 @@ class RankingVideoCreator:
             return
         info = get_media_info(video)
         dur = info.get('duration', 30)
+
+        # Normalize both audio streams to same sample rate before mixing
         cmd = ['ffmpeg', '-y', '-i', video, '-i', self.background_audio,
                '-filter_complex',
-               f"[1:a]aloop=loop=-1:size=2e+09,atrim=duration={dur},"
-               f"volume={self.bg_volume}[bg];[0:a][bg]amix=inputs=2:duration=first[out]",
+               f"[0:a]aresample=44100[clip];"
+               f"[1:a]aresample=44100,aloop=loop=-1:size=2e+09,"
+               f"atrim=duration={dur},volume={self.bg_volume}[bg];"
+               f"[clip][bg]amix=inputs=2:duration=first:normalize=0[out]",
                '-map', '0:v', '-map', '[out]',
                '-c:v', 'copy', '-c:a', 'aac', '-b:a', '192k', '-shortest', output]
         p = await asyncio.create_subprocess_exec(
             *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
         _, err = await p.communicate()
         if p.returncode != 0:
+            logger.warning(f"Audio mix failed, copying without mix: {err.decode()[-200:]}")
             shutil.copy2(video, output)
 
     async def create(self, output_path, progress_cb=None):
@@ -278,13 +337,11 @@ class RankingVideoCreator:
         while len(self.labels) < len(self.clips):
             self.labels.append('')
 
-        vx, vy, vw, vh = self._video_area()
-
         prepared = []
         for i, c in enumerate(self.clips):
             if progress_cb:
                 await progress_cb(f"Processing clip {i+1}/{len(self.clips)}...")
-            prepared.append(await self._prepare_clip(c, i, vw, vh, vx, vy))
+            prepared.append(await self._prepare_clip(c, i))
 
         if progress_cb:
             await progress_cb("Stitching clips...")
