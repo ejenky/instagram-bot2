@@ -1,12 +1,16 @@
 """
-Instagram Content Bot v3
-- Auto-download from any social media link
-- Edit videos/images (metadata reset, smart crop, dimensions, watermark, text)
-- Create videos from scratch (CapCut-like: cuts, text styles, audio, transitions)
-- Template system for saving and replicating video configurations
+Content Bot — CapCut in Telegram
+- Auto-download from any social media link (yt-dlp + gallery-dl)
+- Full metadata randomization & anti-detection
+- Overlays: border, text, retention/sludge filter
+- Templates: Reel, Story, Square, Landscape, Slideshow
+- AI: Auto-captions (Whisper), TTS voiceover (ElevenLabs), GPT descriptions
+- Effects: Speed change, voice effects, background music
+- Batch processing, profile scraping, aspect ratio conversion
 """
 
 import os
+import re
 import shutil
 import logging
 import subprocess
@@ -30,10 +34,20 @@ from core.config import (
     EDIT_PROMPT,
     RANKING_MENU, RANKING_TITLE, RANKING_COLORS,
     RANKING_CLIPS, RANKING_LABELS, RANKING_AUDIO, RANKING_PREVIEW,
+    # New states
+    DOWNLOAD_ACTIONS, OVERLAY_MENU, BORDER_COLOR, BORDER_CUSTOM_HEX,
+    CAPTION_TEXT, CAPTION_POSITION, CAPTION_STYLE,
+    SLUDGE_CATEGORY, SLUDGE_LAYOUT,
+    TEMPLATE_CHOICE, ASPECT_CONVERT, ASPECT_METHOD,
+    AUTO_CAPTION_STYLE, VOICEOVER_TEXT, VOICEOVER_VOICE, VOICEOVER_MODE,
+    SPEED_SELECT, VOICE_EFFECT_SELECT, MUSIC_CATEGORY, MUSIC_SELECT,
+    FULL_PROCESS_CONFIRM, SETTINGS_MENU, BATCH_PROCESSING,
+    SLIDESHOW_IMAGES, PROFILE_SCRAPE, TEXT_INPUT_ACTION,
 )
 from core.downloader import MediaDownloader
 from core.media_info import get_media_info
 
+# Existing handlers
 from handlers.edit_handlers import (
     show_crop_options, crop_selected, show_dimensions_options, dimensions_selected,
     mode_selected, text_choice, receive_text, text_confirmed,
@@ -58,6 +72,28 @@ from handlers.ranking_handlers import (
     ranking_preview_handler,
 )
 
+# New handlers
+from handlers.download_handlers import (
+    show_download_actions, download_action_handler,
+    template_choice_handler, auto_caption_handler,
+    full_process_handler, speed_handler, voice_effect_handler,
+    music_handler, slideshow_handler, quick_download,
+)
+from handlers.overlay_handlers import (
+    show_overlay_options, overlay_menu_handler,
+    border_color_handler, border_custom_hex_handler,
+    caption_text_handler, caption_position_handler, caption_style_handler,
+    sludge_category_handler, sludge_layout_handler,
+    aspect_convert_handler, aspect_method_handler,
+)
+from handlers.ai_handlers import (
+    voiceover_text_handler, voiceover_voice_handler, voiceover_mode_handler,
+    handle_text_input, text_input_action_handler,
+)
+from handlers.settings_handlers import (
+    show_settings_menu, settings_handler,
+)
+
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
@@ -71,40 +107,71 @@ os.makedirs(DATA_DIR, exist_ok=True)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     await update.message.reply_text(
-        "*Instagram Content Bot*\n\n"
-        "Send me any social media link or upload media directly.\n"
-        "I'll auto-download it and let you choose what to do.\n\n"
+        "⚡ *Content Bot*\n\n"
+        "Send me any social media link or upload media.\n"
+        "I'll download it and give you powerful editing options.\n\n"
         "*What I can do:*\n"
-        "- Auto-download from any social media platform\n"
-        "- Edit videos/images (crop, resize, watermark, text, filters, metadata reset)\n"
-        "- Create videos from scratch (cuts, text styles, transitions, audio)\n"
-        "- Save & load templates to replicate video styles\n\n"
+        "📥 Download from any platform (TikTok, Instagram, Twitter, YouTube...)\n"
+        "🔒 Auto-randomize metadata (anti-detection)\n"
+        "🖼️ Overlays: borders, text, retention/sludge filters\n"
+        "🎬 Templates: Reel, Story, Square, Landscape, Slideshow\n"
+        "📝 Auto-captions (AI transcription + burn)\n"
+        "🎤 AI Voiceover (ElevenLabs TTS)\n"
+        "🔄 Speed change, voice effects, background music\n"
+        "📐 Aspect ratio conversion\n"
+        "⚡ One-tap full processing pipeline\n\n"
         "*Commands:*\n"
-        "/start - Start the bot\n"
-        "/create - Create a video from scratch\n"
-        "/ranking - Auto-build ranking shorts (Top 5 etc)\n"
-        "/templates - Manage video templates\n"
+        "/start - Start\n"
+        "/menu - Show feature menu\n"
+        "/create - Create video from scratch\n"
+        "/ranking - Auto-build ranking shorts\n"
+        "/templates - Manage templates\n"
         "/presets - Manage filter presets\n"
-        "/settings - View settings\n"
+        "/settings - Configure defaults\n"
         "/cancel - Cancel current operation",
         parse_mode='Markdown'
     )
     return WAITING_FOR_CONTENT
 
 
+async def menu_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Show the main feature menu."""
+    await update.message.reply_text(
+        "📋 *Menu*\n\n"
+        "📥 *Download* — Send any social media link\n"
+        "🖼️ *Overlay* — Add borders, text, or sludge clips\n"
+        "🎬 *Templates* — Format videos for Reels/Shorts/Stories\n"
+        "🎤 *Voiceover* — AI-generated narration\n"
+        "📝 *Captions* — Auto-transcribe and subtitle\n"
+        "⚡ *Quick Process* — One-tap download + randomize\n"
+        "⚙️ *Settings* — Default template, voice, caption style\n\n"
+        "Just send a link, image, or video to get started!",
+        parse_mode='Markdown'
+    )
+    return WAITING_FOR_CONTENT
+
+
 async def handle_content(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle incoming content - auto-download links, receive uploads."""
+    """Handle incoming content - auto-download links, receive uploads, handle text."""
     msg = update.message
 
     if msg.text:
         url = msg.text.strip()
         if MediaDownloader.is_supported_url(url):
+            # Check if it's a profile URL
+            if MediaDownloader.is_profile_url(url):
+                return await handle_profile_url(update, context, url)
+
             # Auto-download from any social media link
-            await msg.reply_text("Downloading media...")
+            await msg.reply_text("⏳ Downloading media...")
             try:
                 with tempfile.TemporaryDirectory() as temp_dir:
                     downloader = MediaDownloader(temp_dir)
                     result = await downloader.download(url)
+
+                    if result.get('type') == 'gallery':
+                        # Multiple files downloaded (gallery)
+                        return await handle_gallery(update, context, result)
 
                     # Save to persistent storage
                     ext = os.path.splitext(result['path'])[1] or '.mp4'
@@ -122,23 +189,20 @@ async def handle_content(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                     duration_str = f"\nDuration: {info['duration']:.1f}s"
 
                 await msg.reply_text(
-                    f"Downloaded! ({media_type})\n"
+                    f"✅ Downloaded! ({media_type})\n"
                     f"Resolution: {info.get('width', '?')}x{info.get('height', '?')}"
                     f"{duration_str}"
                 )
 
-                # Show edit prompt
-                return await show_edit_prompt(update, context)
+                # Show action menu (new flow)
+                return await show_download_actions(update, context)
 
             except Exception as e:
-                await msg.reply_text(f"Download failed: {e}\n\nTry a different link.")
+                await msg.reply_text(f"❌ Download failed: {e}\n\nTry a different link.")
                 return WAITING_FOR_CONTENT
         else:
-            await msg.reply_text(
-                "Send me a link (any social media platform) or upload media directly.\n"
-                "Or use /create to make a video from scratch."
-            )
-            return WAITING_FOR_CONTENT
+            # Plain text (not a URL) - offer text actions
+            return await handle_text_input(update, context)
 
     elif msg.photo:
         photo = msg.photo[-1]
@@ -148,8 +212,13 @@ async def handle_content(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         context.user_data['input_path'] = path
         context.user_data['content_type'] = 'image'
         context.user_data['media_info'] = get_media_info(path)
-        await msg.reply_text("Image received!")
-        return await show_edit_prompt(update, context)
+        await msg.reply_text("📸 Image received!")
+
+        # Check if we have a saved caption to auto-apply
+        if context.user_data.get('saved_caption'):
+            context.user_data['caption_text'] = context.user_data.pop('saved_caption')
+
+        return await show_download_actions(update, context)
 
     elif msg.video or msg.document:
         file = await (msg.video or msg.document).get_file()
@@ -162,32 +231,104 @@ async def handle_content(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         context.user_data['input_path'] = path
         context.user_data['content_type'] = 'video' if info.get('is_video') else 'image'
         context.user_data['media_info'] = info
-        await msg.reply_text(f"{'Video' if info.get('is_video') else 'Image'} received!")
-        return await show_edit_prompt(update, context)
+        await msg.reply_text(f"{'🎬 Video' if info.get('is_video') else '📸 Image'} received!")
+        return await show_download_actions(update, context)
 
     await msg.reply_text("Send a link, video, or image.")
     return WAITING_FOR_CONTENT
 
 
-async def show_edit_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """After downloading/receiving media, ask if user wants to edit."""
+async def handle_profile_url(update: Update, context: ContextTypes.DEFAULT_TYPE, url: str) -> int:
+    """Handle profile URL - offer to scrape recent posts."""
     keyboard = [
-        [InlineKeyboardButton("Edit This Media", callback_data="action_edit")],
-        [InlineKeyboardButton("Skip (Download Only)", callback_data="action_skip")],
+        [InlineKeyboardButton("📥 Last 10 posts", callback_data="scrape_10")],
+        [InlineKeyboardButton("📥 Last 20 posts", callback_data="scrape_20")],
+        [InlineKeyboardButton("Cancel", callback_data="scrape_cancel")],
     ]
-    msg = update.message or update.callback_query.message
-    await msg.reply_text(
-        "Would you like to edit this media?\n\n"
-        "*Edit* includes: smart crop, resize, watermark, text overlay, "
-        "filters, metadata reset",
+    context.user_data['profile_url'] = url
+    await update.message.reply_text(
+        "🔍 *Profile detected!*\n\nHow many recent posts to download?",
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode='Markdown'
     )
-    return EDIT_PROMPT
+    return PROFILE_SCRAPE
+
+
+async def profile_scrape_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle profile scraping."""
+    query = update.callback_query
+    await query.answer()
+
+    if query.data == 'scrape_cancel':
+        await query.edit_message_text("Cancelled.")
+        context.user_data.clear()
+        return WAITING_FOR_CONTENT
+
+    count = int(query.data.replace('scrape_', ''))
+    url = context.user_data.get('profile_url', '')
+
+    await query.edit_message_text(f"⏳ Scraping last {count} posts from profile...")
+
+    try:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            downloader = MediaDownloader(temp_dir)
+            results = await downloader.download_profile(url, max_items=count)
+
+        if not results:
+            await query.message.reply_text("❌ No content found on this profile.")
+            return WAITING_FOR_CONTENT
+
+        await query.message.reply_text(f"📦 Found {len(results)} items. Sending...")
+
+        sent = 0
+        for item in results:
+            try:
+                with open(item['path'], 'rb') as f:
+                    if item['type'] == 'image':
+                        await query.message.reply_photo(photo=f)
+                    else:
+                        await query.message.reply_video(video=f, supports_streaming=True)
+                sent += 1
+            except Exception as e:
+                logger.warning(f"Failed to send item: {e}")
+
+        await query.message.reply_text(f"✅ Sent {sent}/{len(results)} items.")
+        context.user_data.clear()
+        return WAITING_FOR_CONTENT
+
+    except Exception as e:
+        logger.error(f"Profile scrape failed: {e}", exc_info=True)
+        await query.message.reply_text(f"❌ Scraping failed: {e}")
+        context.user_data.clear()
+        return WAITING_FOR_CONTENT
+
+
+async def handle_gallery(update: Update, context: ContextTypes.DEFAULT_TYPE, result: dict) -> int:
+    """Handle gallery downloads (multiple files)."""
+    files = result.get('files', [])
+    msg = update.message
+
+    await msg.reply_text(f"📦 Gallery: {len(files)} files found. Sending...")
+
+    sent = 0
+    for path in files:
+        try:
+            ext = os.path.splitext(path)[1].lower()
+            with open(path, 'rb') as f:
+                if ext in ['.jpg', '.jpeg', '.png', '.gif', '.webp']:
+                    await msg.reply_photo(photo=f)
+                else:
+                    await msg.reply_video(video=f, supports_streaming=True)
+            sent += 1
+        except Exception as e:
+            logger.warning(f"Failed to send gallery item: {e}")
+
+    await msg.reply_text(f"✅ Sent {sent}/{len(files)} items.\n\nSend another link or file!")
+    return WAITING_FOR_CONTENT
 
 
 async def edit_prompt_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle the edit yes/no prompt after download."""
+    """Handle the legacy edit yes/no prompt (kept for backward compatibility)."""
     query = update.callback_query
     await query.answer()
 
@@ -195,15 +336,14 @@ async def edit_prompt_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         await query.edit_message_text("Let's edit your media!")
         return await show_crop_options(update, context)
     elif query.data == "action_skip":
-        # Send the raw downloaded file back
         input_path = context.user_data.get('input_path')
         content_type = context.user_data.get('content_type', 'video')
         if input_path and os.path.exists(input_path):
             with open(input_path, 'rb') as f:
                 if content_type == 'image':
-                    await query.message.reply_photo(photo=f, caption="Here's your downloaded media.")
+                    await query.message.reply_photo(photo=f, caption="Here's your media.")
                 else:
-                    await query.message.reply_video(video=f, caption="Here's your downloaded media.", supports_streaming=True)
+                    await query.message.reply_video(video=f, caption="Here's your media.", supports_streaming=True)
             os.remove(input_path)
         await query.edit_message_text("Done! Send another link or file.")
         context.user_data.clear()
@@ -227,18 +367,19 @@ async def action_choice_handler(update: Update, context: ContextTypes.DEFAULT_TY
 
 
 async def create_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle /create command."""
     return await create_menu(update, context)
 
 
 async def ranking_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle /ranking command."""
     return await ranking_menu(update, context)
 
 
 async def templates_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle /templates command."""
     return await template_menu(update, context)
+
+
+async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    return await show_settings_menu(update, context)
 
 
 async def preview_done_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -262,20 +403,14 @@ async def preview_done_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     return CREATE_PREVIEW
 
 
-async def settings(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    from core.config import DEFAULT_WATERMARK_TEXT, WATERMARK_IMAGE_PATH, REEL_WIDTH, REEL_HEIGHT
-    dims = "\n".join([f"  {v['label']}" for v in DIMENSION_PRESETS.values()])
-    await update.message.reply_text(
-        f"*Settings*\n\n"
-        f"Default output: {REEL_WIDTH}x{REEL_HEIGHT}\n"
-        f"Default watermark: `{DEFAULT_WATERMARK_TEXT}`\n"
-        f"Watermark image: {'Set' if os.path.exists(WATERMARK_IMAGE_PATH) else 'Not set'}\n\n"
-        f"*Available dimensions:*\n{dims}",
-        parse_mode='Markdown'
-    )
-
-
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    # Clean up any temp files
+    input_path = context.user_data.get('input_path')
+    if input_path and os.path.exists(input_path):
+        try:
+            os.remove(input_path)
+        except OSError:
+            pass
     context.user_data.clear()
     await update.message.reply_text("Cancelled. Send new content to start.")
     return WAITING_FOR_CONTENT
@@ -289,10 +424,12 @@ def main():
     conv = ConversationHandler(
         entry_points=[
             CommandHandler("start", start),
+            CommandHandler("menu", menu_command),
             CommandHandler("create", create_command),
             CommandHandler("ranking", ranking_command),
             CommandHandler("templates", templates_command),
             CommandHandler("presets", manage_presets),
+            CommandHandler("settings", settings_command),
             MessageHandler(
                 filters.TEXT | filters.PHOTO | filters.VIDEO | filters.Document.ALL,
                 handle_content
@@ -307,17 +444,108 @@ def main():
                 ),
             ],
 
-            # Edit prompt after download
+            # ── New download action flow ──
+            DOWNLOAD_ACTIONS: [
+                CallbackQueryHandler(download_action_handler, pattern="^dl_"),
+            ],
+
+            # ── Overlay flow ──
+            OVERLAY_MENU: [
+                CallbackQueryHandler(overlay_menu_handler, pattern="^ov_"),
+            ],
+            BORDER_COLOR: [
+                CallbackQueryHandler(border_color_handler, pattern="^brd_"),
+            ],
+            BORDER_CUSTOM_HEX: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, border_custom_hex_handler),
+            ],
+            CAPTION_TEXT: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, caption_text_handler),
+            ],
+            CAPTION_POSITION: [
+                CallbackQueryHandler(caption_position_handler, pattern="^cpos_"),
+            ],
+            CAPTION_STYLE: [
+                CallbackQueryHandler(caption_style_handler, pattern="^cstyle_"),
+            ],
+            SLUDGE_CATEGORY: [
+                CallbackQueryHandler(sludge_category_handler, pattern="^sludge_"),
+            ],
+            SLUDGE_LAYOUT: [
+                CallbackQueryHandler(sludge_layout_handler, pattern="^slayout_"),
+            ],
+            ASPECT_CONVERT: [
+                CallbackQueryHandler(aspect_convert_handler, pattern="^ar_"),
+            ],
+            ASPECT_METHOD: [
+                CallbackQueryHandler(aspect_method_handler, pattern="^arm_"),
+            ],
+
+            # ── Template flow ──
+            TEMPLATE_CHOICE: [
+                CallbackQueryHandler(template_choice_handler, pattern="^tpl_"),
+            ],
+
+            # ── AI features ──
+            AUTO_CAPTION_STYLE: [
+                CallbackQueryHandler(auto_caption_handler, pattern="^cap_"),
+            ],
+            VOICEOVER_TEXT: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, voiceover_text_handler),
+            ],
+            VOICEOVER_VOICE: [
+                CallbackQueryHandler(voiceover_voice_handler, pattern="^voice_"),
+            ],
+            VOICEOVER_MODE: [
+                CallbackQueryHandler(voiceover_mode_handler, pattern="^vom_"),
+            ],
+
+            # ── Effects ──
+            SPEED_SELECT: [
+                CallbackQueryHandler(speed_handler, pattern="^spd_"),
+            ],
+            VOICE_EFFECT_SELECT: [
+                CallbackQueryHandler(voice_effect_handler, pattern="^vfx_"),
+            ],
+            MUSIC_CATEGORY: [
+                CallbackQueryHandler(music_handler, pattern="^mus_"),
+            ],
+
+            # ── Full process ──
+            FULL_PROCESS_CONFIRM: [
+                CallbackQueryHandler(full_process_handler, pattern="^full_"),
+            ],
+
+            # ── Slideshow ──
+            SLIDESHOW_IMAGES: [
+                MessageHandler(filters.PHOTO, slideshow_handler),
+                CallbackQueryHandler(slideshow_handler, pattern="^slideshow_"),
+            ],
+
+            # ── Profile scraping ──
+            PROFILE_SCRAPE: [
+                CallbackQueryHandler(profile_scrape_handler, pattern="^scrape_"),
+            ],
+
+            # ── Text input actions ──
+            TEXT_INPUT_ACTION: [
+                CallbackQueryHandler(text_input_action_handler, pattern="^txt_"),
+            ],
+
+            # ── Settings ──
+            SETTINGS_MENU: [
+                CallbackQueryHandler(settings_handler, pattern="^set_"),
+            ],
+
+            # ── Legacy edit prompt ──
             EDIT_PROMPT: [
                 CallbackQueryHandler(edit_prompt_handler, pattern="^action_"),
             ],
-
-            # Action choice (edit vs create)
             ACTION_CHOICE: [
                 CallbackQueryHandler(action_choice_handler, pattern="^action_"),
             ],
 
-            # Editing flow
+            # ── Existing editing flow ──
             CHOOSE_CROP: [
                 CallbackQueryHandler(crop_selected, pattern="^crop_"),
             ],
@@ -344,7 +572,7 @@ def main():
                 CallbackQueryHandler(filter_selected, pattern="^filter_"),
             ],
 
-            # Preset management
+            # ── Preset management ──
             MANAGE_PRESETS: [
                 CallbackQueryHandler(preset_action),
             ],
@@ -352,7 +580,7 @@ def main():
                 MessageHandler(filters.TEXT & ~filters.COMMAND, create_preset),
             ],
 
-            # Video creation flow
+            # ── Video creation flow ──
             CREATE_MENU: [
                 CallbackQueryHandler(create_add_clip_handler),
             ],
@@ -379,7 +607,7 @@ def main():
                 CallbackQueryHandler(preview_done_handler),
             ],
 
-            # Template management
+            # ── Template management ──
             TEMPLATE_MENU: [
                 CallbackQueryHandler(template_name_handler),
             ],
@@ -394,7 +622,7 @@ def main():
                 CallbackQueryHandler(template_select_handler),
             ],
 
-            # Ranking video flow
+            # ── Ranking video flow ──
             RANKING_MENU: [
                 CallbackQueryHandler(ranking_menu_handler, pattern="^rk_"),
             ],
@@ -430,17 +658,18 @@ def main():
         fallbacks=[
             CommandHandler("cancel", cancel),
             CommandHandler("start", start),
+            CommandHandler("menu", menu_command),
             CommandHandler("create", create_command),
             CommandHandler("ranking", ranking_command),
             CommandHandler("templates", templates_command),
             CommandHandler("presets", manage_presets),
+            CommandHandler("settings", settings_command),
         ],
     )
 
     app.add_handler(conv)
-    app.add_handler(CommandHandler("settings", settings))
 
-    print("Bot starting...")
+    print("Content Bot starting...")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 

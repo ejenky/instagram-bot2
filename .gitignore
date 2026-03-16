@@ -3,3 +3,6 @@
 __pycache__/
 data/
 *.backup
+sludge-clips/
+music/
+assets/
