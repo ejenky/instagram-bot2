@@ -1,15 +1,26 @@
 version: '3.8'
 
 services:
-  instagram-bot:
+  content-bot:
     build: .
-    container_name: instagram-content-bot
+    container_name: content-bot
     restart: unless-stopped
     environment:
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - DEFAULT_WATERMARK=${DEFAULT_WATERMARK:-@yourusername}
       - WATERMARK_PATH=/app/assets/watermark.png
       - DATA_DIR=/app/data
+      - DOWNLOAD_DIR=/tmp/content-bot/downloads
+      - OUTPUT_DIR=/tmp/content-bot/output
+      - SLUDGE_CLIPS_DIR=/opt/content-bot/sludge-clips
+      - MUSIC_DIR=/opt/content-bot/music
+      - MAX_FILE_SIZE=50
     volumes:
       - ./data:/app/data
       - ./assets:/app/assets
+      - ./sludge-clips:/opt/content-bot/sludge-clips
+      - ./music:/opt/content-bot/music
+    tmpfs:
+      - /tmp/content-bot:size=2G

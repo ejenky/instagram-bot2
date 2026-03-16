@@ -1,0 +1,18 @@
+{
+  "deep_male": {
+    "id": "pNInz6obpgDQGcFmaJgB",
+    "name": "Deep Male (Adam)"
+  },
+  "female": {
+    "id": "EXAVITQu4vr4xnSDxMaL",
+    "name": "Female (Bella)"
+  },
+  "dramatic": {
+    "id": "VR6AewLTigWG4xSOukaG",
+    "name": "Dramatic (Arnold)"
+  },
+  "whisper": {
+    "id": "MF3mGyEYCl7XYWbV9V6O",
+    "name": "Soft/Whisper (Emily)"
+  }
+}
