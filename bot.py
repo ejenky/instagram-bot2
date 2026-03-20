@@ -43,6 +43,7 @@ from core.config import (
     SPEED_SELECT, VOICE_EFFECT_SELECT, MUSIC_CATEGORY, MUSIC_SELECT,
     FULL_PROCESS_CONFIRM, SETTINGS_MENU, BATCH_PROCESSING,
     SLIDESHOW_IMAGES, PROFILE_SCRAPE, TEXT_INPUT_ACTION,
+    PAGE_SELECT, TWEET_RATIO, TWEET_BG_COLOR, TWEET_XLOGO,
 )
 from core.downloader import MediaDownloader
 from core.media_info import get_media_info
@@ -92,6 +93,11 @@ from handlers.ai_handlers import (
 )
 from handlers.settings_handlers import (
     show_settings_menu, settings_handler,
+)
+from handlers.tweet_handlers import (
+    is_tweet_url, show_page_select,
+    page_select_handler, tweet_ratio_handler,
+    tweet_bg_handler, tweet_xlogo_handler,
 )
 
 logging.basicConfig(
@@ -158,6 +164,11 @@ async def handle_content(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     if msg.text:
         url = msg.text.strip()
         if MediaDownloader.is_supported_url(url):
+            # Check if it's a tweet URL — route to page selector
+            if is_tweet_url(url):
+                context.user_data['tw_url'] = url
+                return await show_page_select(update, context)
+
             # Check if it's a profile URL
             if MediaDownloader.is_profile_url(url):
                 return await handle_profile_url(update, context, url)
@@ -530,6 +541,20 @@ def main():
             # ── Text input actions ──
             TEXT_INPUT_ACTION: [
                 CallbackQueryHandler(text_input_action_handler, pattern="^txt_"),
+            ],
+
+            # ── Tweet pipeline ──
+            PAGE_SELECT: [
+                CallbackQueryHandler(page_select_handler, pattern="^tw_page_"),
+            ],
+            TWEET_RATIO: [
+                CallbackQueryHandler(tweet_ratio_handler, pattern="^tw_ratio_"),
+            ],
+            TWEET_BG_COLOR: [
+                CallbackQueryHandler(tweet_bg_handler, pattern="^tw_bg_"),
+            ],
+            TWEET_XLOGO: [
+                CallbackQueryHandler(tweet_xlogo_handler, pattern="^tw_xlogo_"),
             ],
 
             # ── Settings ──

@@ -248,4 +248,9 @@ VOICE_EFFECTS = {
     SLIDESHOW_IMAGES,       # 53 - collect images for slideshow
     PROFILE_SCRAPE,         # 54 - profile scraping options
     TEXT_INPUT_ACTION,       # 55 - handle plain text input
-) = range(56)
+    # ── Tweet pipeline states ──
+    PAGE_SELECT,             # 56 - page selector (reversedworlds, cattos.jpeg, etc.)
+    TWEET_RATIO,             # 57 - format ratio selection
+    TWEET_BG_COLOR,          # 58 - background color selection
+    TWEET_XLOGO,             # 59 - color out X logo yes/no
+) = range(60)
