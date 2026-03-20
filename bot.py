@@ -163,12 +163,13 @@ async def handle_content(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     if msg.text:
         url = msg.text.strip()
-        if MediaDownloader.is_supported_url(url):
-            # Check if it's a tweet URL — route to page selector
-            if is_tweet_url(url):
-                context.user_data['tw_url'] = url
-                return await show_page_select(update, context)
 
+        # Tweet URLs get routed to the page selector BEFORE anything else
+        if re.search(r'(x\.com|twitter\.com)/\w+/status/\d+', url):
+            context.user_data['tw_url'] = url
+            return await show_page_select(update, context)
+
+        if MediaDownloader.is_supported_url(url):
             # Check if it's a profile URL
             if MediaDownloader.is_profile_url(url):
                 return await handle_profile_url(update, context, url)
